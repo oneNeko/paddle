@@ -11,7 +11,7 @@ int main()
 {
     auto server = paddle::rpcServer::GetInstance();
     server.Register("add", add);
-    server.Run();
+    server.Call("add","1 2",3);
 
     return 0;
 }

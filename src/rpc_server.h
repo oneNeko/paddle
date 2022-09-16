@@ -5,28 +5,34 @@
 #include <string>
 #include <unordered_map>
 
+#include "logging.h"
+#include "traits.h"
+
 namespace paddle
 {
+    template <typename F, size_t... i, typename T>
+    decltype(auto) call_func_helper(F &&func, std::index_sequence<i...>, T &&t)
+    {
+        return func(std::get<i>(std::forward<T>(t))...);
+    }
+
+    template <typename F, typename T>
+    decltype(auto) call_func(F &&func, T &&t)
+    {
+        constexpr auto size = std::tuple_size<typename std::decay<T>::type>::value;
+        return call_func_helper(std::forward<F>(func), std::make_index_sequence<size>{}, std::forward<T>(t));
+    }
     class rpcServer
     {
     private:
-        std::unordered_map<std::string, std::function<void()>> methods_;
+        std::unordered_map<std::string, std::function<void(const char *data, int len)>> methods_;
 
     public:
-        /**
-         * @brief 注册方法
-         * 
-         * @tparam F 
-         * @tparam Args 
-         * @param method_name 方法名
-         * @param f 
-         * @param args 
-         */
-        template <typename F, typename... Args>
-        void Register(std::string method_name, F &&f, Args &&...args)
+        //注册函数
+        template <typename F>
+        void Register(const std::string funcName, F handler)
         {
-            std::function<decltype(f(args...))()> func = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
-            methods_[method_name] = func;
+            methods_[funcName] = std::bind(&rpcServer::CallProxy<F>, this, handler, std::placeholders::_1, std::placeholders::_2);
         }
 
         /**
@@ -39,14 +45,22 @@ namespace paddle
             methods_.erase(method_name);
         }
 
-        /**
-         * @brief 调用指定方法
-         * 
-         * @param method_name 方法名 
-         * @param data 参数
-         */
-        void Call(std::string method_name,std::string data){
+        //客户端处理函数调用
+        void Call(std::string funcName, const char *data, int len)
+        {
+            auto func = methods_[funcName];
+            func(data, len); //跳转到callproxy
+        }
 
+        template <typename F>
+        void CallProxy(F func, const char *data, int len)
+        {
+            //把函数参数类型萃取出来
+            using args_type = typename function_traits<F>::tuple_type;
+            int err = 0;
+            args_type args{1, 2};
+            auto res = paddle::call_func(func,args);
+            std::cout<<res<<std::endl;
         }
 
     private:
